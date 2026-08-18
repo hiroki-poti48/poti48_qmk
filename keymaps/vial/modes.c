@@ -137,8 +137,8 @@ bool gesture_static_layer_is_set(uint8_t layer) {
 static int16_t scroll_accel_multiplier(int16_t velocity) {
     // ▼▼▼ 加速の感触はこの3つだけで調整する ▼▼▼
     const int16_t MULT_MIN     = 4;   // ゆっくり動かした時の倍率(小さいほど細かい)
-    const int16_t MULT_MAX     = 20;  // 素早く動かした時の倍率(ピーク時の速さ)
-    const int16_t VELOCITY_MAX = 25;  // この速さでMULT_MAXに到達(大きいほど中間域が広い)
+    const int16_t MULT_MAX     = 8;   // 素早く動かした時の倍率(ピーク時の速さ)
+    const int16_t VELOCITY_MAX = 45;  // この速さでMULT_MAXに到達(大きいほど中間域が広い)
     // ▲▲▲ ここまで ▲▲▲
 
     int32_t v = velocity;
