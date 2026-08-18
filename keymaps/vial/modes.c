@@ -131,12 +131,15 @@ bool gesture_static_layer_is_set(uint8_t layer) {
 }
 
 // === Scroll conversion helper ===
-static int8_t accumulate_scroll(int16_t *accum, int16_t input, int div, int mult) {
+static mouse_hv_report_t accumulate_scroll(int16_t *accum, int16_t input, int div, int mult) {
     *accum += input;
     if (*accum >= div || *accum <= -div) {
-        int8_t wheel = (int8_t)((*accum / div) * mult);
+        int32_t wheel = (int32_t)(*accum / div) * mult;
         *accum = *accum % div;
-        return wheel;
+        // 高解像度スクロール時に値が大きくなるため、レポート範囲でクランプする
+        if (wheel > MOUSE_REPORT_HV_MAX) wheel = MOUSE_REPORT_HV_MAX;
+        if (wheel < MOUSE_REPORT_HV_MIN) wheel = MOUSE_REPORT_HV_MIN;
+        return (mouse_hv_report_t)wheel;
     }
     return 0;
 }
@@ -144,7 +147,10 @@ static int8_t accumulate_scroll(int16_t *accum, int16_t input, int div, int mult
 static void do_scroll(report_mouse_t *rpt, int16_t *ax, int16_t *ay, uint8_t *lock,
                       int16_t ix, int16_t iy) {
     const int SCROLL_DIV = 3;
-    const int SCROLL_MULTIPLIER = 2;
+    // ▼▼▼ スクロール速度の調整はこの数字だけを変える ▼▼▼
+    //   6 = 現状の約1/40（遅め） / 12 = 約1/20（推奨） / 24 = 約1/10（速め）
+    const int SCROLL_MULTIPLIER = 12;
+    // ▲▲▲ ここまで ▲▲▲
     const int AXIS_SWITCH = 5;
     const int AXIS_START = 1;
 
@@ -169,7 +175,7 @@ static void do_scroll(report_mouse_t *rpt, int16_t *ax, int16_t *ay, uint8_t *lo
         }
     }
 
-    int8_t wheel_v = 0, wheel_h = 0;
+    mouse_hv_report_t wheel_v = 0, wheel_h = 0;
     if (*lock == 1) wheel_v = accumulate_scroll(ay, 0, SCROLL_DIV, SCROLL_MULTIPLIER);
     if (*lock == 2) wheel_h = accumulate_scroll(ax, 0, SCROLL_DIV, SCROLL_MULTIPLIER);
 

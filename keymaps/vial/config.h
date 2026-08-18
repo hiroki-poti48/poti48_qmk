@@ -78,3 +78,9 @@
 // ユーザー設定EEPROM領域サイズを定義 (バイト)
 // 構造体が33バイト以上になる可能性があるため、余裕を持って64バイト確保
 #define EECONFIG_USER_DATA_SIZE 64
+
+// === スクロール調整（追記） ===
+// 高解像度スクロール: 1ティックを1/120ノッチとして送る（ThinkPad本体と同じ方式）
+#define POINTING_DEVICE_HIRES_SCROLL_ENABLE
+// ホイールの値を16bitに拡張（hi-res で値が大きくなるため必須）
+#define WHEEL_EXTENDED_REPORT
