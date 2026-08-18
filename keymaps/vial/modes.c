@@ -130,6 +130,28 @@ bool gesture_static_layer_is_set(uint8_t layer) {
     return (layer < 32) && (gesture_static_layer_mask & (1UL << layer));
 }
 
+// === 加速カーブ ===
+// トラックポイントを動かす速さ(velocity)に応じて倍率を変える。
+// ゆっくり動かした時は控えめな倍率、素早く動かした時だけ大きな倍率にすることで、
+// 「細かい制御」と「ピーク速度」の間の中間域を広く持たせる。
+static int16_t scroll_accel_multiplier(int16_t velocity) {
+    // ▼▼▼ 加速の感触はこの3つだけで調整する ▼▼▼
+    const int16_t MULT_MIN     = 4;   // ゆっくり動かした時の倍率(小さいほど細かい)
+    const int16_t MULT_MAX     = 20;  // 素早く動かした時の倍率(ピーク時の速さ)
+    const int16_t VELOCITY_MAX = 25;  // この速さでMULT_MAXに到達(大きいほど中間域が広い)
+    // ▲▲▲ ここまで ▲▲▲
+
+    int32_t v = velocity;
+    if (v < 0) v = -v;
+    if (v > VELOCITY_MAX) v = VELOCITY_MAX;
+
+    // 2乗カーブ: 遅い〜中速までは緩やかに増え、速い時だけ急に増える。
+    // これにより「ちょっと強く押しただけで一気にピークに達する」感触を緩和する。
+    int32_t range = MULT_MAX - MULT_MIN;
+    int32_t mult  = MULT_MIN + (range * v * v) / ((int32_t)VELOCITY_MAX * VELOCITY_MAX);
+    return (int16_t)mult;
+}
+
 // === Scroll conversion helper ===
 static mouse_hv_report_t accumulate_scroll(int16_t *accum, int16_t input, int div, int mult) {
     *accum += input;
@@ -147,10 +169,6 @@ static mouse_hv_report_t accumulate_scroll(int16_t *accum, int16_t input, int di
 static void do_scroll(report_mouse_t *rpt, int16_t *ax, int16_t *ay, uint8_t *lock,
                       int16_t ix, int16_t iy) {
     const int SCROLL_DIV = 3;
-    // ▼▼▼ スクロール速度の調整はこの数字だけを変える ▼▼▼
-    //   6 = 現状の約1/40（遅め） / 12 = 約1/20（推奨） / 24 = 約1/10（速め）
-    const int SCROLL_MULTIPLIER = 12;
-    // ▲▲▲ ここまで ▲▲▲
     const int AXIS_SWITCH = 5;
     const int AXIS_START = 1;
 
@@ -175,9 +193,10 @@ static void do_scroll(report_mouse_t *rpt, int16_t *ax, int16_t *ay, uint8_t *lo
         }
     }
 
+    // その瞬間の動かす速さ(このtickでの生の移動量)を元に倍率を都度計算する
     mouse_hv_report_t wheel_v = 0, wheel_h = 0;
-    if (*lock == 1) wheel_v = accumulate_scroll(ay, 0, SCROLL_DIV, SCROLL_MULTIPLIER);
-    if (*lock == 2) wheel_h = accumulate_scroll(ax, 0, SCROLL_DIV, SCROLL_MULTIPLIER);
+    if (*lock == 1) wheel_v = accumulate_scroll(ay, 0, SCROLL_DIV, scroll_accel_multiplier(iy));
+    if (*lock == 2) wheel_h = accumulate_scroll(ax, 0, SCROLL_DIV, scroll_accel_multiplier(ix));
 
     rpt->x = 0; rpt->y = 0;
     // 垂直ホイール: 下方向(y+)はスクロール下(HIDでv負)なので反転
