@@ -197,6 +197,14 @@ static void do_scroll(report_mouse_t *rpt, int16_t *ax, int16_t *ay, uint8_t *lo
     if (*lock == 0) {
         if (abs_y >= AXIS_START || abs_x >= AXIS_START) {
             *lock = (abs_y > abs_x) ? 1 : 2;
+            // Mac: スクロールを新しく始めた瞬間だけ、ノッチ変換の蓄積に
+            // 「助走」を一度だけ与えて、初動の重さを軽減する。
+            // (継続して動かしている間の速さには影響しない)
+            if (os_mode == 1) {
+                const int16_t PRIME_TICKS = 60; // 半ノッチ分
+                if (*lock == 1) mac_notch_accum_v = PRIME_TICKS;
+                else mac_notch_accum_h = PRIME_TICKS;
+            }
         }
     } else {
         if (*lock == 1 && abs_x > AXIS_SWITCH) {
@@ -224,8 +232,8 @@ static void do_scroll(report_mouse_t *rpt, int16_t *ax, int16_t *ay, uint8_t *lo
     // 垂直ホイール: Windowsは反転(下方向(y+)がスクロール下になるようHIDでは負にする)。
     // Mac(ナチュラルスクロールON)は実測の結果、反転させない方が正しい向きになる。
     rpt->v = (os_mode == 1) ? wheel_v : -wheel_v;
-    // 水平ホイール: Win/Macとも反転しない(実測で確認済み)。
-    rpt->h = wheel_h;
+    // 水平ホイール: Windowsは反転しない。Mac(ナチュラルスクロールON)は実測の結果、反転させる。
+    rpt->h = (os_mode == 1) ? -wheel_h : wheel_h;
 }
 
 // === Main pointing device hook ===
