@@ -135,35 +135,51 @@ bool gesture_static_layer_is_set(uint8_t layer) {
 // ゆっくり動かした時は控えめな倍率、素早く動かした時だけ大きな倍率にすることで、
 // 「細かい制御」と「ピーク速度」の間の中間域を広く持たせる。
 static int16_t scroll_accel_multiplier(int16_t velocity) {
-    // ▼▼▼ 加速の感触はこの3つだけで調整する ▼▼▼
     const int16_t MULT_MIN     = 4;   // ゆっくり動かした時の倍率(小さいほど細かい)
     const int16_t MULT_MAX     = 8;   // 素早く動かした時の倍率(ピーク時の速さ)
     const int16_t VELOCITY_MAX = 45;  // この速さでMULT_MAXに到達(大きいほど中間域が広い)
-    // ▲▲▲ ここまで ▲▲▲
 
     int32_t v = velocity;
     if (v < 0) v = -v;
     if (v > VELOCITY_MAX) v = VELOCITY_MAX;
 
-    // 2乗カーブ: 遅い〜中速までは緩やかに増え、速い時だけ急に増える。
-    // これにより「ちょっと強く押しただけで一気にピークに達する」感触を緩和する。
     int32_t range = MULT_MAX - MULT_MIN;
     int32_t mult  = MULT_MIN + (range * v * v) / ((int32_t)VELOCITY_MAX * VELOCITY_MAX);
     return (int16_t)mult;
 }
 
 // === Scroll conversion helper ===
+// 戻り値は「高解像度スクロールのティック」単位(120ティック=1ノッチ)
 static mouse_hv_report_t accumulate_scroll(int16_t *accum, int16_t input, int div, int mult) {
     *accum += input;
     if (*accum >= div || *accum <= -div) {
         int32_t wheel = (int32_t)(*accum / div) * mult;
         *accum = *accum % div;
-        // 高解像度スクロール時に値が大きくなるため、レポート範囲でクランプする
         if (wheel > MOUSE_REPORT_HV_MAX) wheel = MOUSE_REPORT_HV_MAX;
         if (wheel < MOUSE_REPORT_HV_MIN) wheel = MOUSE_REPORT_HV_MIN;
         return (mouse_hv_report_t)wheel;
     }
     return 0;
+}
+
+// === Mac用: 高解像度ティックを「ノッチ単位」に変換する ===
+// macOSはUSB HIDの「Resolution Multiplier」を尊重せず、
+// 送られてきた値をそのまま「ノッチ数」として扱ってしまう。
+// そのため、Windowsと同じ細かいティック(120=1ノッチ)をそのまま送ると、
+// 実際のノッチ数の120倍のスクロールをした扱いになり、爆速になる。
+// ここでは端数を蓄積しておき、実際に1ノッチ分たまった時だけ
+// 「ノッチ数そのもの(1,2,3...)」を送るようにする。
+static int16_t mac_notch_accum_v = 0;
+static int16_t mac_notch_accum_h = 0;
+
+static mouse_hv_report_t mac_notch_convert(int16_t *accum, mouse_hv_report_t hires_ticks) {
+    const int16_t TICKS_PER_NOTCH = 120;
+    int32_t total = (int32_t)(*accum) + (int32_t)hires_ticks;
+    int32_t notches = total / TICKS_PER_NOTCH;
+    *accum = (int16_t)(total % TICKS_PER_NOTCH);
+    if (notches > MOUSE_REPORT_HV_MAX) notches = MOUSE_REPORT_HV_MAX;
+    if (notches < MOUSE_REPORT_HV_MIN) notches = MOUSE_REPORT_HV_MIN;
+    return (mouse_hv_report_t)notches;
 }
 
 static void do_scroll(report_mouse_t *rpt, int16_t *ax, int16_t *ay, uint8_t *lock,
@@ -198,10 +214,18 @@ static void do_scroll(report_mouse_t *rpt, int16_t *ax, int16_t *ay, uint8_t *lo
     if (*lock == 1) wheel_v = accumulate_scroll(ay, 0, SCROLL_DIV, scroll_accel_multiplier(iy));
     if (*lock == 2) wheel_h = accumulate_scroll(ax, 0, SCROLL_DIV, scroll_accel_multiplier(ix));
 
+    // Macの時だけ、ノッチ単位に変換してから送る
+    if (os_mode == 1) { // 1 = Mac
+        wheel_v = mac_notch_convert(&mac_notch_accum_v, wheel_v);
+        wheel_h = mac_notch_convert(&mac_notch_accum_h, wheel_h);
+    }
+
     rpt->x = 0; rpt->y = 0;
-    // 垂直ホイール: 下方向(y+)はスクロール下(HIDでv負)なので反転
-    // 水平ホイール: 右方向(x+)は右スクロール(HIDでh正)なので反転しない
-    rpt->v = -wheel_v; rpt->h = wheel_h;
+    // 垂直ホイール: Windowsは反転(下方向(y+)がスクロール下になるようHIDでは負にする)。
+    // Mac(ナチュラルスクロールON)は実測の結果、反転させない方が正しい向きになる。
+    rpt->v = (os_mode == 1) ? wheel_v : -wheel_v;
+    // 水平ホイール: Win/Macとも反転しない(実測で確認済み)。
+    rpt->h = wheel_h;
 }
 
 // === Main pointing device hook ===
