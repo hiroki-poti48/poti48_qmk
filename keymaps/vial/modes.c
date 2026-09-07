@@ -137,7 +137,11 @@ bool gesture_static_layer_is_set(uint8_t layer) {
 static int16_t scroll_accel_multiplier(int16_t velocity) {
     const int16_t MULT_MIN     = 4;   // ゆっくり動かした時の倍率(小さいほど細かい)
     const int16_t MULT_MAX     = 8;   // 素早く動かした時の倍率(ピーク時の速さ)
-    const int16_t VELOCITY_MAX = 45;  // この速さでMULT_MAXに到達(大きいほど中間域が広い)
+    // この速さでMULT_MAXに到達(大きいほど中間域が広い)。
+    // Windowsは広い中間域が滑らかさに繋がるが、Macはノッチ単位でしか表現できないため、
+    // 同じ「控えめな中間域」がそのまま「反応が鈍い/固い」に直結してしまう。
+    // Macの時だけ早めにフル倍率へ到達させ、その固さを和らげる。
+    const int16_t VELOCITY_MAX = (os_mode == 1) ? 15 : 45;
 
     int32_t v = velocity;
     if (v < 0) v = -v;
